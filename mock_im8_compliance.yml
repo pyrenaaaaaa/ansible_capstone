@@ -1,0 +1,121 @@
+---
+- name: Mock IM8 Compliance Playbook
+  hosts: ubuntu_vm
+  become: yes
+  tasks:
+    # 1. Firewall Configuration
+    - name: Ensure UFW is installed
+      apt:
+        name: ufw
+        state: present
+
+    - name: Set default policy to deny incoming connections
+      ufw:
+        default: deny
+        direction: incoming
+
+    - name: Allow SSH on custom port 2222
+      ufw:
+        rule: allow
+        port: 2222
+        proto: tcp
+
+    - name: Allow HTTP traffic on port 80
+      ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+
+    # 2. Secure SSH Configuration
+    - name: Disable root login over SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+        create: yes
+
+    - name: Enforce key-based SSH authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        create: yes
+
+    - name: Set custom SSH port
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Port'
+        line: 'Port 2222'
+        create: yes
+      notify: Restart SSH
+
+    # 3. File Permissions
+    - name: Set secure permissions on /etc/passwd
+      file:
+        path: /etc/passwd
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Set secure permissions on /etc/shadow
+      file:
+        path: /etc/shadow
+        mode: '0640'
+        owner: root
+        group: shadow
+
+    # 4. Password Policies
+    - name: Set password expiration policy
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^PASS_MAX_DAYS'
+        line: 'PASS_MAX_DAYS 90'
+
+    - name: Enforce minimum password length
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^PASS_MIN_LEN'
+        line: 'PASS_MIN_LEN 8'
+
+    # 5. Audit Logging
+    - name: Ensure auditd is installed
+      apt:
+        name: auditd
+        state: present
+
+    - name: Enable audit logging for user actions
+      lineinfile:
+        path: /etc/audit/audit.rules
+        line: '-w /var/log/auth.log -p wa -k auth_log'
+        create: yes
+
+    - name: Set log retention policy to 30 days
+      copy:
+        content: |
+          /var/log/*.log {
+            rotate 30
+            daily
+            missingok
+            notifempty
+            compress
+            delaycompress
+            sharedscripts
+            postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+            endscript
+          }
+        dest: /etc/logrotate.d/syslog
+        owner: root
+        group: root
+        mode: '0644'
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
+
