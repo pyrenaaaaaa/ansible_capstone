@@ -1,0 +1,59 @@
+---
+- name: CIS Hardening Non-Compliance Remediation
+  hosts: ubuntu_vm
+  become: yes
+  tasks:
+    - name: Ensure permissions on /etc/passwd are configured
+      file:
+        path: /etc/passwd
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Disable root login via SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+        state: present
+      notify: Restart SSH
+
+    - name: Ensure /etc/login.defs exists
+      file:
+        path: /etc/login.defs
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Remove duplicate password expiration policies in /etc/login.defs
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "^PASS_MAX_DAYS|^PASS_MIN_DAYS|^PASS_WARN_AGE"
+        state: absent
+
+    - name: Set password expiration policies in /etc/login.defs
+      lineinfile:
+        path: /etc/login.defs
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "PASS_MAX_DAYS 90"
+        - "PASS_MIN_DAYS 10"
+        - "PASS_WARN_AGE 7"
+      tags:
+        - password
+
+    - name: Ensure password policy configurations in PAM
+      lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: '^password\s+requisite\s+pam_pwquality.so'
+        line: 'password requisite pam_pwquality.so retry=3 minlen=12'
+      tags:
+        - password
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted
